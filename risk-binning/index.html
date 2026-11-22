@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设备质检 · 风险评分分箱分析</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --ink:            #0b0b0b;
+    --ink-2:          #52514e;
+    --muted:          #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --series-2:       #eb6834;
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --serious:        #ec835a;
+    --critical:       #d03b3b;
+    --success-text:   #006300;
+    --series-1-wash:  rgba(42,120,214,0.10);
+    --warning-wash:   rgba(250,178,25,0.16);
+    --critical-wash:  rgba(208,59,59,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .viz-root {
+      color-scheme: dark;
+      --surface-1:    #1a1a19;
+      --page:         #0d0d0d;
+      --ink:          #f0efec;
+      --ink-2:        #c3c2b7;
+      --muted:        #898781;
+      --grid:         #2c2c2a;
+      --axis:         #383835;
+      --border:       rgba(255,255,255,0.10);
+      --series-1:     #3987e5;
+      --series-2:     #d95926;
+      --success-text: #0ca30c;
+      --series-1-wash: rgba(57,135,229,0.16);
+      --warning-wash:  rgba(250,178,25,0.14);
+      --critical-wash: rgba(208,59,59,0.16);
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:    #1a1a19;
+    --page:         #0d0d0d;
+    --ink:          #f0efec;
+    --ink-2:        #c3c2b7;
+    --muted:        #898781;
+    --grid:         #2c2c2a;
+    --axis:         #383835;
+    --border:       rgba(255,255,255,0.10);
+    --series-1:     #3987e5;
+    --series-2:     #d95926;
+    --success-text: #0ca30c;
+    --series-1-wash: rgba(57,135,229,0.16);
+    --warning-wash:  rgba(250,178,25,0.14);
+    --critical-wash: rgba(208,59,59,0.16);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page, #f9f9f7);
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .viz-root { background: var(--page); color: var(--ink); min-height: 100vh; }
+
+  .topbar {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+    padding: 18px 24px 14px;
+  }
+  .topbar h1 { font-size: 20px; margin: 0 0 4px; font-weight: 650; }
+  .topbar .sub { margin: 0; color: var(--ink-2); font-size: 13px; }
+  .top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  main.viz-wrap { padding: 0 24px 32px; max-width: 1080px; margin: 0 auto; display: grid; gap: 14px; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; }
+  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .row + .row { margin-top: 10px; }
+  .lbl { color: var(--ink-2); font-size: 13px; }
+  .muted { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+
+  button, .btn-like {
+    font: inherit; font-size: 13px; color: var(--ink);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 7px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover, .btn-like:hover { background: var(--series-1-wash); }
+  button.primary { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.ghost { color: var(--ink-2); }
+
+  input[type="number"], input[type="text"] {
+    font: inherit; font-size: 13px; color: var(--ink);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 7px; padding: 5px 8px; width: 110px;
+  }
+  .controls label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--ink-2);
+  }
+  .chip.warn { background: var(--warning-wash); border-color: transparent; color: var(--ink); }
+  .chip.bad  { background: var(--critical-wash); border-color: transparent; color: var(--ink); }
+  .chip.ok   { color: var(--success-text); border-color: transparent; background: transparent; }
+
+  .legend { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--ink-2); }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  .chart-wrap { width: 100%; overflow-x: auto; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: inherit; }
+  .grp { cursor: pointer; outline: none; }
+  .grp:focus-visible .hit { stroke: var(--series-1); stroke-width: 1.5; }
+  .grp:hover .hit { fill: var(--series-1-wash); }
+
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-2); font-weight: 600; font-size: 12px; }
+  td.num, th.num { font-variant-numeric: tabular-nums; }
+  tbody tr.clickable { cursor: pointer; }
+  tbody tr.clickable:hover { background: var(--series-1-wash); }
+  tbody tr.selected { background: var(--series-1-wash); }
+  tr.missing-row td { border-top: 2px dashed var(--axis); color: var(--ink-2); }
+
+  .status { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+  .status .big { font-weight: 650; }
+
+  .missing-box {
+    margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--axis);
+    border-radius: 8px; font-size: 13px; color: var(--ink-2);
+  }
+
+  .stat-grid { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+  .stat {
+    min-width: 130px; padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--page);
+  }
+  .stat .k { font-size: 12px; color: var(--ink-2); }
+  .stat .v { font-size: 20px; font-weight: 650; margin-top: 2px; }
+  .stat .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .notes { margin: 0 0 10px; padding-left: 18px; color: var(--ink-2); font-size: 13px; line-height: 1.7; }
+
+  .paste { flex: 1 1 100%; }
+  .paste textarea {
+    width: 100%; margin-top: 8px; font: 12px/1.5 ui-monospace, monospace;
+    color: var(--ink); background: var(--page); border: 1px solid var(--border); border-radius: 7px; padding: 8px;
+  }
+
+  #tooltip {
+    position: fixed; z-index: 50; pointer-events: none;
+    background: var(--surface-1); color: var(--ink);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+    max-width: 280px;
+  }
+  #tooltip .t-title { color: var(--muted); margin-bottom: 4px; }
+  #tooltip .t-row { display: flex; align-items: baseline; gap: 6px; margin-top: 2px; }
+  #tooltip .t-key { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+  #tooltip .t-val { font-weight: 650; font-size: 14px; }
+  #tooltip .t-sub { color: var(--ink-2); }
+
+  .err-list { margin: 8px 0 0; padding-left: 18px; color: var(--critical); font-size: 12px; }
+  .warn-list { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 12px; }
+
+  footer.page-foot {
+    padding: 0 24px 28px; max-width: 1080px; margin: 0 auto;
+    color: var(--muted); font-size: 12px; line-height: 1.7;
+  }
+  kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+</style>
+</head>
+<body>
+<div class="viz-root" id="root">
+  <header class="topbar">
+    <div>
+      <h1>设备质检 · 风险评分分箱分析</h1>
+      <p class="sub">单调最优分箱（动态规划，非贪心合并）· 分箱仅用训练批次 · 评估批次按固定约定落组</p>
+    </div>
+    <div class="top-actions">
+      <span class="chip warn">⚠ 结果仅用于安排复查优先级，不构成任何设备安全承诺</span>
+      <button id="themeToggle" type="button">深色模式</button>
+    </div>
+  </header>
+
+  <main class="viz-wrap">
+    <section class="card" aria-labelledby="h-data">
+      <h2 id="h-data">1 · 数据</h2>
+      <div class="row">
+        <button id="loadDemo" type="button" class="primary">载入演示数据</button>
+        <label class="btn-like">导入 CSV 文件<input type="file" id="fileInput" accept=".csv,text/csv,text/plain" hidden></label>
+        <button id="downloadTemplate" type="button">下载 CSV 模板</button>
+        <details class="paste">
+          <summary class="lbl">或粘贴 CSV 文本（列：score, defect, weight, batch）</summary>
+          <textarea id="pasteArea" rows="5" spellcheck="false" placeholder="score,defect,weight,batch&#10;72.5,1,2,P2601&#10;,0,1,P2601"></textarea>
+          <div class="row" style="margin-top:8px">
+            <button id="parsePaste" type="button">解析粘贴内容</button>
+          </div>
+        </details>
+      </div>
+      <p id="dataSummary" class="muted">尚未载入数据。</p>
+      <div id="importMsgs"></div>
+      <div class="row" id="batchRow" hidden>
+        <span class="lbl">评估批次（勾选；其余批次用于训练，分箱只在训练部分决定）：</span>
+        <span id="batchChecks"></span>
+      </div>
+      <div id="missingCard"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-constraint">
+      <h2 id="h-constraint">2 · 分箱约束</h2>
+      <div class="row controls">
+        <label>每组最低样本权重 <input id="minWeight" type="number" min="0" step="1" value="120"></label>
+        <label>最大分组数 <input id="maxGroups" type="number" min="1" max="12" step="1" value="6"></label>
+        <label>锁定业务边界 <input id="lockedBoundary" type="number" step="0.1" placeholder="留空不锁定"></label>
+        <button id="clearLock" type="button" class="ghost">清除锁定</button>
+      </div>
+      <div id="statusLine" class="status" role="status"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-rate">
+      <div class="card-head">
+        <h2 id="h-rate">3 · 各组缺陷率（按评分升序，单调不降）</h2>
+        <div class="legend" id="rateLegend"></div>
+      </div>
+      <div class="chart-wrap"><svg id="rateChart" viewBox="0 0 760 260" role="img" aria-label="各组缺陷率柱状图"></svg></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-weight">
+      <div class="card-head">
+        <h2 id="h-weight">各组样本权重</h2>
+        <div class="legend" id="weightLegend"></div>
+      </div>
+      <div class="chart-wrap"><svg id="weightChart" viewBox="0 0 760 190" role="img" aria-label="各组样本权重柱状图"></svg></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-table">
+      <h2 id="h-table">4 · 分组明细（表格视图）</h2>
+      <div class="table-wrap">
+        <table id="groupTable">
+          <thead>
+            <tr>
+              <th>组</th><th class="num">评分范围（训练）</th><th class="num">落组区间</th>
+              <th class="num">训练权重</th><th class="num">训练缺陷率</th><th class="num">训练 95% 区间</th>
+              <th class="num">评估权重</th><th class="num">评估缺陷率</th>
+              <th class="num">来源批次</th><th>稳定性</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-detail">
+      <h2 id="h-detail">5 · 组详情（点击图表或表格中的组）</h2>
+      <div id="groupDetail"><p class="muted">尚未选择组。</p></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-method">
+      <h2 id="h-method">6 · 方法与自测</h2>
+      <ul class="notes">
+        <li>相同评分先聚合，绝不拆到两个组；缺失评分不参与数值顺序，单独统计（见数据卡片）。</li>
+        <li>约束：每组训练权重 ≥ 最低样本权重；组数 ≤ 最大分组数；组缺陷率沿评分单调不降（允许持平）。</li>
+        <li>求解：动态规划求全局最优，最小化组内加权平方误差（行级加权 Brier 损失）；不是不断合并相邻组的贪心法。</li>
+        <li>分箱边界只由训练批次决定；评估样本按固定切点落组：切点取相邻组训练评分中点，区间左闭右开 [a, b)，首末组外端开放。</li>
+        <li>锁定业务边界 B：强制「≤ B」与「&gt; B」分到不同组，页面显示它使最优损失增加多少。</li>
+        <li>置信区间为按权重折算的 Wilson 近似区间，仅用于判断估计稳定性。</li>
+        <li>本页不输出任何设备安全承诺；风险估计仅用于安排复查优先级。</li>
+      </ul>
+      <div class="row">
+        <button id="runSelfTest" type="button">运行小样本穷举核对</button>
+        <span id="selfTestResult" class="muted"></span>
+      </div>
+    </section>
+  </main>
+
+  <footer class="page-foot">
+    离线单页应用：数据不离开本机。命令行核对：<kbd>node verify-binning.mjs</kbd>（随机小样本 DP 对穷举）。
+    本工具输出为统计分箱与缺陷率估计，用于安排复查优先级，不构成对任何设备安全性的承诺或保证。
+  </footer>
+</div>
+<div id="tooltip" role="tooltip" hidden></div>
+<script src="binning-core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
